@@ -9,7 +9,7 @@ Inverter service report app for Regen Renewables (Pvt) Ltd. Fill the service che
 | index.html | The app |
 | sw.js | Offline support (only manages this app's own storage) |
 | manifest.webmanifest | Install settings (name, icon) |
-| icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png | App icons |
+| icon-192.png, icon-512.png, icon-maskable-512.png, apple-touch-icon.png, favicon-32.png | App icons (home screen, Android adaptive icon, iPhone, browser tab) |
 
 ## Publish on GitHub Pages
 
