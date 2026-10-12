@@ -130,6 +130,15 @@ tr.low td{background:var(--warn-bg)}
 .legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted)}
 .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
 table.et td.cell-in{min-width:96px}
+.thinv{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.ndbtn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:99px;padding:5px 12px;min-height:34px;cursor:pointer;font-weight:600;font-size:13px;white-space:nowrap}
+.ndbtn.icon{padding:4px;min-height:30px;min-width:30px;justify-content:center;border-radius:7px}
+.ndbtn:hover{border-color:var(--warn)}
+.ndbtn[aria-pressed="true"]{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.ndcell{display:inline-block;font-family:var(--f-body);font-size:12px;font-weight:600;color:var(--warn);background:var(--warn-bg);border-radius:99px;padding:2px 9px;white-space:nowrap}
+.ndnote{display:flex;flex-direction:column;gap:10px;border:1px dashed var(--warn);border-radius:8px;padding:12px;background:var(--warn-bg)}
+.ndmark{display:inline-flex;align-items:center;gap:8px;font-weight:600;color:var(--warn)}
+.ndnote input{background:var(--surface)}
 .photos{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
 .ph{display:flex;flex-direction:column;gap:6px;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--surface-2)}
 .ph img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:5px;max-width:100%}
@@ -259,7 +268,7 @@ function monthsBefore(dateStr, n = 6) {
 }
 const newString = n => ({ no: String(n), v: '', i: '', p: '' });
 function newInverter(n, months = 6) {
-  const inv = { id: uid(), no: 'INV-' + pad2(n), sn: '', loc: '', plate: {}, plateOther: [], platePhoto: '', strings: [], energy: Array(months).fill(''), fault: { desc: '', parts: '', warranty: '', remarks: '' } };
+  const inv = { id: uid(), no: 'INV-' + pad2(n), sn: '', loc: '', plate: {}, plateOther: [], platePhoto: '', strings: [], energy: Array(months).fill(''), noData: false, noDataNote: '', fault: { desc: '', parts: '', warranty: '', remarks: '' } };
   SECTIONS.forEach(s => { inv[s.key] = {}; s.items.forEach(([k]) => (inv[s.key][k] = { s: '', n: '' })); });
   for (let i = 1; i <= 10; i++) inv.strings.push(newString(i));
   return inv;
@@ -486,10 +495,12 @@ function renderInv(m) {
       <td><button class="btn sm ghost" type="button" data-delstr="${j}" aria-label="Remove string ${esc(x.s.no)}">✕</button></td></tr>`).join('')}
     </tbody><tfoot><tr><td><b>Total</b></td><td></td><td class="n" id="totI">${fix(sr.rows.reduce((a, x) => a + (isFinite(x.i) ? x.i : 0), 0), 2)}</td><td class="n" id="totP">${fix(sr.rows.reduce((a, x) => a + (isFinite(x.p) ? x.p : 0), 0), 0)}</td><td></td></tr></tfoot></table></div>
     <div class="row"><button class="btn sm" type="button" data-act="addstr">Add string</button><span class="hint" id="medI">${isFinite(sr.med) ? 'Median current ' + fix(sr.med, 2) + ' A' : ''}</span></div></div>
-  <div class="card"><h2>Energy Generated</h2><p class="sub">Monthly generation of ${esc(inv.no)}. The months are set on the Energy tab, where all inverters are compared.</p>
+  <div class="card"><div class="row sp"><h2>Energy Generated</h2>${ndButton(INV, true)}</div>
+    ${inv.noData ? `<div class="ndnote"><span class="ndmark">${ND_ICON}No historical energy data on this inverter</span><div class="f"><label for="i_ndnote">Reason (optional)</label><input id="i_ndnote" type="text" data-p="${b}.noDataNote" value="${esc(inv.noDataNote)}" placeholder="e.g. inverter replaced, logger reset, display shows today only"></div><span class="hint">This inverter is left out of the plant totals and the chart. Tap the button again if data turns up.</span></div>` :
+    `<p class="sub">Monthly generation of ${esc(inv.no)}. The months are set on the Energy tab, where all inverters are compared. Leave a month blank if it has no figure; it prints as “No data”.</p>
     <div class="scroll"><table class="t" style="max-width:420px"><thead><tr><th>Month</th><th class="n">Energy (kWh)</th></tr></thead><tbody>
     ${R.months.map((mo, j) => `<tr><td>${esc(mFmt(mo) || 'Month ' + (j + 1))}</td><td class="cell-in"><input type="text" inputmode="decimal" class="mono" data-p="${b}.energy.${j}" value="${esc(inv.energy[j] ?? '')}" aria-label="${esc(inv.no)} ${esc(mFmt(mo))} kWh"></td></tr>`).join('')}
-    </tbody></table></div><span class="hint" id="invETot">${invEnergyLine(energyStats().invTot[INV])}</span></div>
+    </tbody></table></div><span class="hint" id="invETot">${invEnergyLine(energyStats().invTot[INV])}</span>`}</div>
   ${secCard(SECTIONS.find(s => s.key === 'test'), inv, b)}
   <div class="card"><h2>Faults &amp; Parts</h2>
     <div class="g"><div class="f full"><label for="i_fdesc">Fault description</label><textarea id="i_fdesc" data-p="${b}.fault.desc" rows="3">${esc(inv.fault.desc)}</textarea></div>
@@ -506,20 +517,25 @@ function secCard(sec, inv, b) {
 
 const SERIES = ['#0b7a3e', '#2f6fb0', '#d98a00', '#8a4fb3', '#169c9c', '#b5523b', '#5d6b66', '#7a9a1e'];
 const serCol = i => SERIES[i % SERIES.length];
+// "no historical data" icon: bar chart struck through
+const ND_ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true" focusable="false"><path d="M4 16v-4M8.5 16V8M13 16v-6M17 16V5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/><path d="M2.5 3.5l15 13" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>';
+const ndButton = (i, withText) => { const inv = R.invs[i]; return `<button class="ndbtn${withText ? '' : ' icon'}" type="button" data-act="nodata" data-i="${i}" aria-pressed="${!!inv.noData}" title="${esc(inv.no)}: no historical energy data on the inverter">${ND_ICON}${withText ? '<span>No historical data</span>' : `<span class="sr">${esc(inv.no)} has no historical data</span>`}</button>`; };
 const daysIn = m => { const mm = /^(\d{4})-(\d{2})/.exec(m || ''); return mm ? new Date(+mm[1], +mm[2], 0).getDate() : 30; };
 function energyStats(r = R) {
   const kwp = num(r.site.kwp), sum = a => a.reduce((x, y) => x + y, 0);
   const rows = r.months.map((m, j) => {
-    const vals = r.invs.map(inv => num((inv.energy || [])[j])); const have = vals.filter(isFinite);
+    const vals = r.invs.map(inv => (inv.noData ? NaN : num((inv.energy || [])[j]))); const have = vals.filter(isFinite);
     const tot = have.length ? sum(have) : NaN;
     return { m, vals, tot, sy: isFinite(tot) && kwp > 0 ? tot / kwp / daysIn(m) : NaN };
   });
+  // inverters marked "no historical data" count as n = 0
   const invTot = r.invs.map((inv, i) => { const v = rows.map(x => x.vals[i]).filter(isFinite); return { sum: sum(v), n: v.length, avg: v.length ? sum(v) / v.length : NaN }; });
   const tv = rows.map(x => x.tot).filter(isFinite);
   return { rows, invTot, total: sum(tv), avg: tv.length ? sum(tv) / tv.length : NaN, n: tv.length, kwp };
 }
 function chartSVG(st, r = R) {
-  const W = 640, H = 230, L = 56, Rr = 10, T = 18, B = 34, iw = W - L - Rr, ih = H - T - B, ni = r.invs.length;
+  const act = r.invs.map((v, i) => i).filter(i => !r.invs[i].noData);   // inverters with data
+  const W = 640, H = 230, L = 56, Rr = 10, T = 18, B = 34, iw = W - L - Rr, ih = H - T - B, ni = Math.max(1, act.length);
   const mx = Math.max(0, ...st.rows.flatMap(x => x.vals.map(v => (isFinite(v) ? v : 0))));
   if (!mx) return '<p class="hint">Enter monthly figures for each inverter to see the chart.</p>';
   const step = niceStep(mx / 4), top = Math.ceil(mx / step) * step, gw = iw / st.rows.length, bw = gw * 0.72 / ni;
@@ -527,23 +543,23 @@ function chartSVG(st, r = R) {
   for (let v = 0; v <= top + 1e-9; v += step) { const y = T + ih - v / top * ih; s += `<line x1="${L}" x2="${W - Rr}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${L - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${fix(v)}</text>`; }
   st.rows.forEach((x, j) => {
     const g0 = L + gw * j + gw * 0.14;
-    x.vals.forEach((v, i) => { if (!isFinite(v)) return; const h = v / top * ih, bx = g0 + bw * i;
+    act.forEach((i, k) => { const v = x.vals[i]; if (!isFinite(v)) return; const h = v / top * ih, bx = g0 + bw * k;
       s += `<rect x="${bx + 0.5}" y="${T + ih - h}" width="${Math.max(1, bw - 1)}" height="${h}" rx="2" fill="${serCol(i)}"><title>${esc(r.invs[i].no)} · ${esc(mFmt(x.m))}: ${fix(v)} kWh</title></rect>`;
       if (ni === 1) s += `<text x="${bx + bw / 2}" y="${T + ih - h - 4}" text-anchor="middle" font-size="11" fill="var(--ink)" font-family="IBM Plex Mono,monospace">${fix(v)}</text>`; });
     s += `<text x="${L + gw * j + gw / 2}" y="${H - 12}" text-anchor="middle" font-size="12" fill="var(--muted)">${esc(mFmt(x.m))}</text>`;
   });
   return s + '</svg>';
 }
-const legendHTML = (r = R) => r.invs.length > 1 ? `<div class="legend">${r.invs.map((inv, i) => `<span><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}</span>`).join('')}</div>` : '';
+const legendHTML = (r = R) => r.invs.length > 1 ? `<div class="legend">${r.invs.map((inv, i) => `<span><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}${inv.noData ? ' (no data)' : ''}</span>`).join('')}</div>` : '';
 function niceStep(x) { if (!(x > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(x))); const f = x / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
 function renderEnergy(m) {
   const st = energyStats();
-  const head = R.invs.map((inv, i) => `<th class="n"><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}</th>`).join('');
+  const head = R.invs.map((inv, i) => `<th class="n"><div class="thinv"><span><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}</span>${ndButton(i, false)}</div></th>`).join('');
   m.innerHTML = `<div class="card"><h2>Energy Generated</h2><p class="sub">Monthly generation of each inverter for the six months before the service, from the inverter display or monitoring portal. You can also enter it on each inverter’s page. With the plant capacity filled in, the plant’s daily specific yield is shown.</p>
     <div class="scroll"><table class="t et"><thead><tr><th>Month</th>${head}<th class="n">Plant total</th><th class="n">kWh/kWp/day</th></tr></thead><tbody>
-    ${st.rows.map((x, j) => `<tr><td class="cell-in"><input type="month" data-p="months.${j}" value="${esc(x.m)}" aria-label="Month ${j + 1}"></td>${R.invs.map((inv, i) => `<td class="cell-in"><input type="text" inputmode="decimal" class="mono" data-p="invs.${i}.energy.${j}" value="${esc(inv.energy[j])}" aria-label="${esc(inv.no)} ${esc(mFmt(x.m))} kWh"></td>`).join('')}<td class="n" data-etot="${j}">${isFinite(x.tot) ? fix(x.tot) : '–'}</td><td class="n" data-sy="${j}">${isFinite(x.sy) ? fix(x.sy, 2) : '–'}</td></tr>`).join('')}
-    </tbody><tfoot><tr><td><b>Total</b></td>${st.invTot.map((t, i) => `<td class="n" data-itot="${i}">${t.n ? fix(t.sum) : '–'}</td>`).join('')}<td class="n" id="eTot">${st.n ? fix(st.total) : '–'}</td><td></td></tr></tfoot></table></div>
-    <div class="row"><button class="btn sm" type="button" data-act="months">Set months from service date</button><span class="hint">Set the months before entering figures; figures stay with their row.</span></div></div>
+    ${st.rows.map((x, j) => `<tr><td class="cell-in"><input type="month" data-p="months.${j}" value="${esc(x.m)}" aria-label="Month ${j + 1}"></td>${R.invs.map((inv, i) => inv.noData ? `<td class="n"><span class="ndcell">No data</span></td>` : `<td class="cell-in"><input type="text" inputmode="decimal" class="mono" data-p="invs.${i}.energy.${j}" value="${esc(inv.energy[j])}" aria-label="${esc(inv.no)} ${esc(mFmt(x.m))} kWh"></td>`).join('')}<td class="n" data-etot="${j}">${isFinite(x.tot) ? fix(x.tot) : '–'}</td><td class="n" data-sy="${j}">${isFinite(x.sy) ? fix(x.sy, 2) : '–'}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td><b>Total</b></td>${st.invTot.map((t, i) => `<td class="n" data-itot="${i}">${R.invs[i].noData ? '<span class="ndcell">No data</span>' : t.n ? fix(t.sum) : '–'}</td>`).join('')}<td class="n" id="eTot">${st.n ? fix(st.total) : '–'}</td><td></td></tr></tfoot></table></div>
+    <div class="row"><button class="btn sm" type="button" data-act="months">Set months from service date</button><span class="hint">Set the months before entering figures; figures stay with their row. Tap ${ND_ICON.replace('width="18" height="18"', 'width="14" height="14" style="vertical-align:-2px"')} under an inverter when it has no historical data.</span></div></div>
   <div class="card"><h2>Monthly trend by inverter</h2><div id="chartBox">${chartSVG(st)}</div>${legendHTML()}</div>`;
 }
 function renderPhotos(m) {
@@ -595,7 +611,7 @@ function refreshEnergy() {
   const st = energyStats();
   if (TAB === 'energy') {
     st.rows.forEach((x, j) => { const a = $(`[data-etot="${j}"]`); if (a) a.textContent = isFinite(x.tot) ? fix(x.tot) : '–'; const b = $(`[data-sy="${j}"]`); if (b) b.textContent = isFinite(x.sy) ? fix(x.sy, 2) : '–'; });
-    st.invTot.forEach((t, i) => { const c = $(`[data-itot="${i}"]`); if (c) c.textContent = t.n ? fix(t.sum) : '–'; });
+    st.invTot.forEach((t, i) => { const c = $(`[data-itot="${i}"]`); if (c && !R.invs[i].noData) c.textContent = t.n ? fix(t.sum) : '–'; });
     const e = $('#eTot'); if (e) e.textContent = st.n ? fix(st.total) : '–';
     const cb = $('#chartBox'); if (cb) cb.innerHTML = chartSVG(st);
   }
@@ -622,6 +638,7 @@ document.addEventListener('click', async e => {
   else if (a === 'import') $('#fileImport').click();
   else if (a === 'addinv') { R.invs.push(newInverter(R.invs.length + 1, R.months.length)); INV = R.invs.length - 1; TAB = 'inv'; touch(); render(); }
   else if (a === 'delinv') ask(`Remove ${R.invs[INV].no} and everything entered for it?`, 'Remove', () => { R.invs.splice(INV, 1); INV = Math.max(0, INV - 1); touch(); render(); });
+  else if (a === 'nodata') { const inv = R.invs[+t.dataset.i]; inv.noData = !inv.noData; touch(); render(); return; }
   else if (a === 'addstr') { const ss = R.invs[INV].strings; ss.push(newString(ss.length + 1)); touch(); render(); }
   else if (a === 'scan') $('#filePlate').click();
   else if (a === 'editplate') openReview(R.invs[INV].plate, R.invs[INV].plateOther, [], null, 'Edit nameplate values');
@@ -1072,8 +1089,9 @@ async function buildPdf(r) {
     // this inverter's energy
     const ii = r.invs.indexOf(inv), it = EST.invTot[ii], multi = r.invs.length > 1;
     heading('Energy Generated', it.n ? `Total ${fix(it.sum)} kWh  ·  average ${fix(it.avg)} kWh/month` : '');
-    table(multi ? [{ w: 0.34, label: 'Month' }, { w: 0.33, label: 'Energy generated (kWh)', align: 'r' }, { w: 0.33, label: 'Share of plant total', align: 'r' }] : [{ w: 0.5, label: 'Month' }, { w: 0.5, label: 'Energy generated (kWh)', align: 'r' }],
-      EST.rows.map(x => { const v = x.vals[ii]; const row = [mFmt(x.m), isFinite(v) ? fix(v) : '']; if (multi) row.push(isFinite(v) && x.tot > 0 ? fix(v / x.tot * 100, 1) + ' %' : ''); return row; }));
+    if (inv.noData) table([{ w: 1 }], [Object.assign([{ t: 'No historical energy data available on this inverter' + (inv.noDataNote ? ' – ' + inv.noDataNote : '') + '.', font: FB, color: C.warn }], { bg: C.warnBg })], { noHead: true });
+    else table(multi ? [{ w: 0.34, label: 'Month' }, { w: 0.33, label: 'Energy generated (kWh)', align: 'r' }, { w: 0.33, label: 'Share of plant total', align: 'r' }] : [{ w: 0.5, label: 'Month' }, { w: 0.5, label: 'Energy generated (kWh)', align: 'r' }],
+      EST.rows.map(x => { const v = x.vals[ii]; const row = [mFmt(x.m), isFinite(v) ? fix(v) : { t: 'No data', color: C.mute }]; if (multi) row.push(isFinite(v) && x.tot > 0 ? fix(v / x.tot * 100, 1) + ' %' : ''); return row; }));
     checklist(SECTIONS.find(s => s.key === 'test'), inv);
     heading('Faults & Parts');
     table([{ w: 0.28 }, { w: 0.72 }], [[{ t: 'Fault description', color: C.mute }, inv.fault.desc || '-'], [{ t: 'Parts replaced / required', color: C.mute }, inv.fault.parts || '-'], [{ t: 'Warranty / non-warranty', color: C.mute }, { t: inv.fault.warranty || '-', font: FB, color: inv.fault.warranty === 'Non-warranty' ? C.warn : C.ink }], [{ t: 'Remarks', color: C.mute }, inv.fault.remarks || '-']], { noHead: true });
@@ -1090,9 +1108,12 @@ async function buildPdf(r) {
   {
     const iw = 0.50 / ni;
     const cols = [{ w: 0.18, label: 'Month' }].concat(r.invs.map(inv => ({ w: iw, label: inv.no, align: 'r' })), [{ w: 0.16, label: 'Plant total (kWh)', align: 'r' }, { w: 0.16, label: 'kWh/kWp/day', align: 'r' }]);
-    const rows = st.rows.map(x => [mFmt(x.m)].concat(x.vals.map(v => (isFinite(v) ? fix(v) : '')), [{ t: isFinite(x.tot) ? fix(x.tot) : '', font: FB }, isFinite(x.sy) ? fix(x.sy, 2) : '']));
-    if (st.n) { const tr = [{ t: 'Total', font: FB }].concat(st.invTot.map(t => ({ t: t.n ? fix(t.sum) : '', font: FB })), [{ t: fix(st.total), font: FB }, '']); tr.bg = C.head; rows.push(tr); }
-    table(cols, rows, { size: small ? 7.4 : 8.6 });
+    const ND = { t: 'No data', color: C.mute };
+    const rows = st.rows.map(x => [mFmt(x.m)].concat(x.vals.map(v => (isFinite(v) ? fix(v) : ND)), [{ t: isFinite(x.tot) ? fix(x.tot) : '', font: FB }, isFinite(x.sy) ? fix(x.sy, 2) : '']));
+    if (st.n) { const tr = [{ t: 'Total', font: FB }].concat(st.invTot.map((t, i) => (r.invs[i].noData ? ND : { t: t.n ? fix(t.sum) : '', font: FB })), [{ t: fix(st.total), font: FB }, '']); tr.bg = C.head; rows.push(tr); }
+    table(cols, rows, { size: small ? 7.4 : 8.6, gap: 6 });
+    const nds = r.invs.filter(v => v.noData);
+    if (nds.length) table([{ w: 1 }], nds.map(v => Object.assign([{ t: `${v.no}: no historical energy data available on the inverter${v.noDataNote ? ' – ' + v.noDataNote : ''}. Not included in the plant total.`, color: C.warn }], { bg: C.warnBg })), { noHead: true, size: 8.2 });
   }
   const mx = Math.max(0, ...st.rows.flatMap(x => x.vals.map(v => (isFinite(v) ? v : 0))));
   if (mx > 0) {
@@ -1100,16 +1121,17 @@ async function buildPdf(r) {
     const step = niceStep(mx / 4), top = Math.ceil(mx / step) * step, L = M + 46, W = CW - 56, base = y - ch - 10;
     txt('kWh', M, base + ch + 8, { size: 7.5, color: C.mute });
     for (let v = 0; v <= top + 1e-9; v += step) { const yy = base + v / top * ch; page.drawLine({ start: { x: L, y: yy }, end: { x: L + W, y: yy }, thickness: 0.4, color: C.line }); const t = fix(v); txt(t, L - 6 - F.widthOfTextAtSize(t, 7.5), yy - 2.5, { size: 7.5, color: C.mute }); }
-    const gw = W / st.rows.length, bw = gw * 0.72 / ni;
+    const act = r.invs.map((v, i) => i).filter(i => !r.invs[i].noData), na = Math.max(1, act.length);
+    const gw = W / st.rows.length, bw = gw * 0.72 / na;
     st.rows.forEach((x, j) => {
       const g0 = L + gw * j + gw * 0.14;
-      x.vals.forEach((v, i) => { if (!isFinite(v)) return; const h = v / top * ch, bx = g0 + bw * i;
+      act.forEach((i, k) => { const v = x.vals[i]; if (!isFinite(v)) return; const h = v / top * ch, bx = g0 + bw * k;
         page.drawRectangle({ x: bx + 0.4, y: base, width: Math.max(0.8, bw - 0.8), height: h, color: hexRgb(serCol(i)) });
-        if (ni === 1) { const t = fix(v); txt(t, bx + bw / 2 - F.widthOfTextAtSize(t, 7.5) / 2, base + h + 3, { size: 7.5 }); } });
+        if (na === 1) { const t = fix(v); txt(t, bx + bw / 2 - F.widthOfTextAtSize(t, 7.5) / 2, base + h + 3, { size: 7.5 }); } });
       const ml = WA(mFmt(x.m)); txt(ml, L + gw * j + gw / 2 - F.widthOfTextAtSize(ml, 8) / 2, base - 12, { size: 8, color: C.mute });
     });
     y = base - 24;
-    if (ni > 1) { let lx = L; r.invs.forEach((inv, i) => { const t = WA(inv.no); const w = F.widthOfTextAtSize(t, 8); if (lx + 14 + w > PW - M) { lx = L; y -= 12; } page.drawRectangle({ x: lx, y: y - 1, width: 8, height: 8, color: hexRgb(serCol(i)) }); txt(t, lx + 11, y, { size: 8, color: C.mute }); lx += 22 + w; }); y -= 16; }
+    if (ni > 1) { let lx = L; r.invs.forEach((inv, i) => { const t = WA(inv.no + (inv.noData ? ' (no data)' : '')); const w = F.widthOfTextAtSize(t, 8); if (lx + 14 + w > PW - M) { lx = L; y -= 12; } page.drawRectangle({ x: lx, y: y - 1, width: 8, height: 8, color: hexRgb(serCol(i)) }); txt(t, lx + 11, y, { size: 8, color: C.mute }); lx += 22 + w; }); y -= 16; }
   }
   heading('Comments');
   table([{ w: 1 }], [[r.comments || '-']], { noHead: true });
