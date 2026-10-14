@@ -2,7 +2,7 @@
    Only touches caches whose names start with CACHE_PREFIX, so the other Regen apps
    hosted on the same github.io address keep their offline copies. */
 const CACHE_PREFIX = 'regen-service-report-';
-const CACHE = CACHE_PREFIX + '1.1.1';
+const CACHE = CACHE_PREFIX + '1.1.3';
 const CDN_CACHE = CACHE_PREFIX + 'cdn';            // libraries and OCR data, kept across app updates
 const LOCAL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png', './favicon-32.png'];
 const CDN = ['https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js'];

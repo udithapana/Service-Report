@@ -187,7 +187,7 @@ footer.notice b{color:var(--ink)}
 <div class="toast" id="toast" hidden></div>
 <input type="file" id="filePlate" accept="image/*" capture="environment" class="sr" aria-label="Nameplate photo">
 <input type="file" id="filePhoto" accept="image/*" multiple class="sr" aria-label="Site photos">
-<input type="file" id="fileImport" accept=".json,application/json" class="sr" aria-label="Import report backup">
+<input type="file" id="fileImport" class="sr" aria-label="Import report backup">
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script>
@@ -533,34 +533,44 @@ function energyStats(r = R) {
   const tv = rows.map(x => x.tot).filter(isFinite);
   return { rows, invTot, total: sum(tv), avg: tv.length ? sum(tv) / tv.length : NaN, n: tv.length, kwp };
 }
+const MANY = 6;   // above this many inverters: one row per inverter in tables, plant total in the chart
+const chartSeries = r => { const act = r.invs.map((v, i) => i).filter(i => !r.invs[i].noData);   // inverters with data
+  return r.invs.length > MANY ? [{ name: 'Plant total', col: '#0b7a3e', v: x => x.tot }] : act.map(i => ({ name: r.invs[i].no, col: serCol(i), v: x => x.vals[i] })); };
 function chartSVG(st, r = R) {
-  const act = r.invs.map((v, i) => i).filter(i => !r.invs[i].noData);   // inverters with data
-  const W = 640, H = 230, L = 56, Rr = 10, T = 18, B = 34, iw = W - L - Rr, ih = H - T - B, ni = Math.max(1, act.length);
-  const mx = Math.max(0, ...st.rows.flatMap(x => x.vals.map(v => (isFinite(v) ? v : 0))));
+  const ser = chartSeries(r);
+  const W = 640, H = 230, L = 56, Rr = 10, T = 18, B = 34, iw = W - L - Rr, ih = H - T - B, ni = Math.max(1, ser.length);
+  const mx = Math.max(0, ...st.rows.flatMap(x => ser.map(sr => { const v = sr.v(x); return isFinite(v) ? v : 0; })));
   if (!mx) return '<p class="hint">Enter monthly figures for each inverter to see the chart.</p>';
   const step = niceStep(mx / 4), top = Math.ceil(mx / step) * step, gw = iw / st.rows.length, bw = gw * 0.72 / ni;
   let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly energy generated per inverter, kWh">`;
   for (let v = 0; v <= top + 1e-9; v += step) { const y = T + ih - v / top * ih; s += `<line x1="${L}" x2="${W - Rr}" y1="${y}" y2="${y}" stroke="var(--line)" stroke-width="1"/><text x="${L - 6}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${fix(v)}</text>`; }
   st.rows.forEach((x, j) => {
     const g0 = L + gw * j + gw * 0.14;
-    act.forEach((i, k) => { const v = x.vals[i]; if (!isFinite(v)) return; const h = v / top * ih, bx = g0 + bw * k;
-      s += `<rect x="${bx + 0.5}" y="${T + ih - h}" width="${Math.max(1, bw - 1)}" height="${h}" rx="2" fill="${serCol(i)}"><title>${esc(r.invs[i].no)} · ${esc(mFmt(x.m))}: ${fix(v)} kWh</title></rect>`;
+    ser.forEach((sr, k) => { const v = sr.v(x); if (!isFinite(v)) return; const h = v / top * ih, bx = g0 + bw * k;
+      s += `<rect x="${bx + 0.5}" y="${T + ih - h}" width="${Math.max(1, bw - 1)}" height="${h}" rx="2" fill="${sr.col}"><title>${esc(sr.name)} · ${esc(mFmt(x.m))}: ${fix(v)} kWh</title></rect>`;
       if (ni === 1) s += `<text x="${bx + bw / 2}" y="${T + ih - h - 4}" text-anchor="middle" font-size="11" fill="var(--ink)" font-family="IBM Plex Mono,monospace">${fix(v)}</text>`; });
     s += `<text x="${L + gw * j + gw / 2}" y="${H - 12}" text-anchor="middle" font-size="12" fill="var(--muted)">${esc(mFmt(x.m))}</text>`;
   });
   return s + '</svg>';
 }
-const legendHTML = (r = R) => r.invs.length > 1 ? `<div class="legend">${r.invs.map((inv, i) => `<span><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}${inv.noData ? ' (no data)' : ''}</span>`).join('')}</div>` : '';
+const legendHTML = (r = R) => r.invs.length > MANY ? `<p class="hint">Bars show the plant total per month (sum of the inverters with data).</p>` : r.invs.length > 1 ? `<div class="legend">${r.invs.map((inv, i) => `<span><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}${inv.noData ? ' (no data)' : ''}</span>`).join('')}</div>` : '';
 function niceStep(x) { if (!(x > 0)) return 1; const p = Math.pow(10, Math.floor(Math.log10(x))); const f = x / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
+function energyTableByInverter(st) {   // one row per inverter, months across
+  const ND = '<span class="ndcell">No data</span>';
+  return `<div class="scroll"><table class="t et"><thead><tr><th>Inverter</th>${st.rows.map((x, j) => `<th class="cell-in"><input type="month" data-p="months.${j}" value="${esc(x.m)}" aria-label="Month ${j + 1}"></th>`).join('')}<th class="n">Total</th></tr></thead><tbody>
+    ${R.invs.map((inv, i) => `<tr><td><div class="thinv"><span><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}</span>${ndButton(i, false)}</div></td>${st.rows.map((x, j) => inv.noData ? `<td class="n">${ND}</td>` : `<td class="cell-in"><input type="text" inputmode="decimal" class="mono" data-p="invs.${i}.energy.${j}" value="${esc(inv.energy[j])}" aria-label="${esc(inv.no)} ${esc(mFmt(x.m))} kWh"></td>`).join('')}<td class="n" data-itot="${i}">${inv.noData ? ND : st.invTot[i].n ? fix(st.invTot[i].sum) : '–'}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td><b>Plant total</b></td>${st.rows.map((x, j) => `<td class="n" data-etot="${j}">${isFinite(x.tot) ? fix(x.tot) : '–'}</td>`).join('')}<td class="n" id="eTot">${st.n ? fix(st.total) : '–'}</td></tr>
+    <tr><td>kWh/kWp/day</td>${st.rows.map((x, j) => `<td class="n" data-sy="${j}">${isFinite(x.sy) ? fix(x.sy, 2) : '–'}</td>`).join('')}<td></td></tr></tfoot></table></div>`;
+}
 function renderEnergy(m) {
   const st = energyStats();
   const head = R.invs.map((inv, i) => `<th class="n"><div class="thinv"><span><span class="sw" style="background:${serCol(i)}"></span>${esc(inv.no)}</span>${ndButton(i, false)}</div></th>`).join('');
   m.innerHTML = `<div class="card"><h2>Energy Generated</h2><p class="sub">Monthly generation of each inverter for the six months before the service, from the inverter display or monitoring portal. You can also enter it on each inverter’s page. With the plant capacity filled in, the plant’s daily specific yield is shown.</p>
-    <div class="scroll"><table class="t et"><thead><tr><th>Month</th>${head}<th class="n">Plant total</th><th class="n">kWh/kWp/day</th></tr></thead><tbody>
+    ${R.invs.length > MANY ? energyTableByInverter(st) : `<div class="scroll"><table class="t et"><thead><tr><th>Month</th>${head}<th class="n">Plant total</th><th class="n">kWh/kWp/day</th></tr></thead><tbody>
     ${st.rows.map((x, j) => `<tr><td class="cell-in"><input type="month" data-p="months.${j}" value="${esc(x.m)}" aria-label="Month ${j + 1}"></td>${R.invs.map((inv, i) => inv.noData ? `<td class="n"><span class="ndcell">No data</span></td>` : `<td class="cell-in"><input type="text" inputmode="decimal" class="mono" data-p="invs.${i}.energy.${j}" value="${esc(inv.energy[j])}" aria-label="${esc(inv.no)} ${esc(mFmt(x.m))} kWh"></td>`).join('')}<td class="n" data-etot="${j}">${isFinite(x.tot) ? fix(x.tot) : '–'}</td><td class="n" data-sy="${j}">${isFinite(x.sy) ? fix(x.sy, 2) : '–'}</td></tr>`).join('')}
-    </tbody><tfoot><tr><td><b>Total</b></td>${st.invTot.map((t, i) => `<td class="n" data-itot="${i}">${R.invs[i].noData ? '<span class="ndcell">No data</span>' : t.n ? fix(t.sum) : '–'}</td>`).join('')}<td class="n" id="eTot">${st.n ? fix(st.total) : '–'}</td><td></td></tr></tfoot></table></div>
+    </tbody><tfoot><tr><td><b>Total</b></td>${st.invTot.map((t, i) => `<td class="n" data-itot="${i}">${R.invs[i].noData ? '<span class="ndcell">No data</span>' : t.n ? fix(t.sum) : '–'}</td>`).join('')}<td class="n" id="eTot">${st.n ? fix(st.total) : '–'}</td><td></td></tr></tfoot></table></div>`}
     <div class="row"><button class="btn sm" type="button" data-act="months">Set months from service date</button><span class="hint">Set the months before entering figures; figures stay with their row. Tap ${ND_ICON.replace('width="18" height="18"', 'width="14" height="14" style="vertical-align:-2px"')} under an inverter when it has no historical data.</span></div></div>
-  <div class="card"><h2>Monthly trend by inverter</h2><div id="chartBox">${chartSVG(st)}</div>${legendHTML()}</div>`;
+  <div class="card"><h2>${R.invs.length > MANY ? 'Monthly plant total' : 'Monthly trend by inverter'}</h2><div id="chartBox">${chartSVG(st)}</div>${legendHTML()}</div>`;
 }
 function renderPhotos(m) {
   m.innerHTML = `<div class="card"><div class="row sp"><h2>Photos</h2><button class="btn pri" type="button" data-act="addphoto">Add photos</button></div><p class="sub">Before and after photos, fault evidence, thermal images. They are added to the end of the PDF with their captions.</p>
@@ -676,10 +686,34 @@ $('#filePhoto').addEventListener('change', async e => {
   for (const f of files) { try { const im = await loadImage(await fileToURL(f)); R.photos.push({ id: uid(), cap: '', data: canvasFrom(im, null, 1280).toDataURL('image/jpeg', 0.8) }); } catch (err) { toast(err.message); } }
   touch(); render();
 });
+/* Read a backup file. Some phones leave old bytes at the end of a file when a new copy is saved over a
+   larger old one, so if the whole text is not valid JSON, read just the first complete {...} object. */
+function parseBackup(text) {
+  text = String(text).replace(/^\uFEFF/, '').trim();
+  try { return JSON.parse(text); } catch (e) {}
+  const start = text.indexOf('{'); if (start < 0) throw new Error('not json');
+  let depth = 0, inStr = false, esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (inStr) { if (esc) esc = false; else if (c === 92) esc = true; else if (c === 34) inStr = false; continue; }
+    if (c === 34) inStr = true; else if (c === 123 || c === 91) depth++;
+    else if ((c === 125 || c === 93) && --depth === 0) return JSON.parse(text.slice(start, i + 1));
+  }
+  throw new Error('incomplete');
+}
 $('#fileImport').addEventListener('change', async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try { const data = JSON.parse(await f.text()); if (!data || data.app !== 'regen-service-report' || !data.report) throw new Error(); const r = normalize(data.report); const list = await dbAll(); if (list.some(x => x.id === r.id)) r.id = 'r' + uid(); await dbPut(r); openReport(r); toast('Report imported'); }
-  catch (err) { toast('That file is not a service report backup from this app.'); }
+  // no file-type filter on the picker: Android often labels .json files as plain/unknown and greys them out,
+  // so check the contents instead
+  let data;
+  try { data = parseBackup(await f.text()); }
+  catch (err) { toast('“' + f.name + '” is not a backup file. Pick the .json file saved with “Save backup file”.'); return; }
+  let rep = null;
+  if (data && data.report && (!data.app || data.app === 'regen-service-report')) rep = data.report;
+  else if (data && data.site && Array.isArray(data.invs)) rep = data;   // a bare report object
+  if (!rep) { toast(data && data.app ? 'This backup is from another app (' + data.app + '), not the Service Report.' : 'That file is not a service report backup from this app.'); return; }
+  try { const r = normalize(rep); const list = await dbAll(); if (!r.id || list.some(x => x.id === r.id)) r.id = 'r' + uid(); await dbPut(r); openReport(r); toast('Report imported'); }
+  catch (err) { toast('The backup could not be opened (' + (err && err.message || 'error') + ').'); }
 });
 
 /* ============ nameplate scanning ============ */
@@ -1111,33 +1145,42 @@ async function buildPdf(r) {
     const ND = { t: 'No data', color: C.mute };
     const rows = st.rows.map(x => [mFmt(x.m)].concat(x.vals.map(v => (isFinite(v) ? fix(v) : ND)), [{ t: isFinite(x.tot) ? fix(x.tot) : '', font: FB }, isFinite(x.sy) ? fix(x.sy, 2) : '']));
     if (st.n) { const tr = [{ t: 'Total', font: FB }].concat(st.invTot.map((t, i) => (r.invs[i].noData ? ND : { t: t.n ? fix(t.sum) : '', font: FB })), [{ t: fix(st.total), font: FB }, '']); tr.bg = C.head; rows.push(tr); }
-    table(cols, rows, { size: small ? 7.4 : 8.6, gap: 6 });
+    if (ni > MANY) {   // one row per inverter, months across
+      const nm = st.rows.length, mw = 0.84 / (nm + 1);
+      const c2 = [{ w: 0.16, label: 'Inverter' }].concat(st.rows.map(x => ({ w: mw, label: mFmt(x.m), align: 'r' })), [{ w: mw, label: 'Total (kWh)', align: 'r' }]);
+      const r2 = r.invs.map((inv, i) => [inv.no].concat(st.rows.map(x => (isFinite(x.vals[i]) ? fix(x.vals[i]) : ND)), [inv.noData ? ND : { t: st.invTot[i].n ? fix(st.invTot[i].sum) : '', font: FB }]));
+      const pt = [{ t: 'Plant total', font: FB }].concat(st.rows.map(x => ({ t: isFinite(x.tot) ? fix(x.tot) : '', font: FB })), [{ t: st.n ? fix(st.total) : '', font: FB }]); pt.bg = C.head; r2.push(pt);
+      if (st.rows.some(x => isFinite(x.sy))) r2.push(['kWh/kWp/day'].concat(st.rows.map(x => (isFinite(x.sy) ? fix(x.sy, 2) : '')), ['']));
+      table(c2, r2, { size: 8, gap: 6 });
+    } else table(cols, rows, { size: small ? 7.4 : 8.6, gap: 6 });
     const nds = r.invs.filter(v => v.noData);
     if (nds.length) table([{ w: 1 }], nds.map(v => Object.assign([{ t: `${v.no}: no historical energy data available on the inverter${v.noDataNote ? ' – ' + v.noDataNote : ''}. Not included in the plant total.`, color: C.warn }], { bg: C.warnBg })), { noHead: true, size: 8.2 });
   }
-  const mx = Math.max(0, ...st.rows.flatMap(x => x.vals.map(v => (isFinite(v) ? v : 0))));
+  const ser = chartSeries(r), mx = Math.max(0, ...st.rows.flatMap(x => ser.map(sr => { const v = sr.v(x); return isFinite(v) ? v : 0; })));
   if (mx > 0) {
+    if (ni > MANY) heading('Monthly Plant Total');
     const ch = 150; ensure(ch + 50);
     const step = niceStep(mx / 4), top = Math.ceil(mx / step) * step, L = M + 46, W = CW - 56, base = y - ch - 10;
     txt('kWh', M, base + ch + 8, { size: 7.5, color: C.mute });
     for (let v = 0; v <= top + 1e-9; v += step) { const yy = base + v / top * ch; page.drawLine({ start: { x: L, y: yy }, end: { x: L + W, y: yy }, thickness: 0.4, color: C.line }); const t = fix(v); txt(t, L - 6 - F.widthOfTextAtSize(t, 7.5), yy - 2.5, { size: 7.5, color: C.mute }); }
-    const act = r.invs.map((v, i) => i).filter(i => !r.invs[i].noData), na = Math.max(1, act.length);
+    const na = Math.max(1, ser.length);
     const gw = W / st.rows.length, bw = gw * 0.72 / na;
     st.rows.forEach((x, j) => {
       const g0 = L + gw * j + gw * 0.14;
-      act.forEach((i, k) => { const v = x.vals[i]; if (!isFinite(v)) return; const h = v / top * ch, bx = g0 + bw * k;
-        page.drawRectangle({ x: bx + 0.4, y: base, width: Math.max(0.8, bw - 0.8), height: h, color: hexRgb(serCol(i)) });
+      ser.forEach((sr, k) => { const v = sr.v(x); if (!isFinite(v)) return; const h = v / top * ch, bx = g0 + bw * k;
+        page.drawRectangle({ x: bx + 0.4, y: base, width: Math.max(0.8, bw - 0.8), height: h, color: hexRgb(sr.col) });
         if (na === 1) { const t = fix(v); txt(t, bx + bw / 2 - F.widthOfTextAtSize(t, 7.5) / 2, base + h + 3, { size: 7.5 }); } });
       const ml = WA(mFmt(x.m)); txt(ml, L + gw * j + gw / 2 - F.widthOfTextAtSize(ml, 8) / 2, base - 12, { size: 8, color: C.mute });
     });
     y = base - 24;
-    if (ni > 1) { let lx = L; r.invs.forEach((inv, i) => { const t = WA(inv.no + (inv.noData ? ' (no data)' : '')); const w = F.widthOfTextAtSize(t, 8); if (lx + 14 + w > PW - M) { lx = L; y -= 12; } page.drawRectangle({ x: lx, y: y - 1, width: 8, height: 8, color: hexRgb(serCol(i)) }); txt(t, lx + 11, y, { size: 8, color: C.mute }); lx += 22 + w; }); y -= 16; }
+    if (ni > MANY) { txt('Bars show the plant total per month (sum of the inverters with data).', L, y, { size: 8, color: C.mute }); y -= 16; }
+    else if (ni > 1) { let lx = L; r.invs.forEach((inv, i) => { const t = WA(inv.no + (inv.noData ? ' (no data)' : '')); const w = F.widthOfTextAtSize(t, 8); if (lx + 14 + w > PW - M) { lx = L; y -= 12; } page.drawRectangle({ x: lx, y: y - 1, width: 8, height: 8, color: hexRgb(serCol(i)) }); txt(t, lx + 11, y, { size: 8, color: C.mute }); lx += 22 + w; }); y -= 16; }
   }
   heading('Comments');
   table([{ w: 1 }], [[r.comments || '-']], { noHead: true });
 
   /* signatures */
-  heading('Signatures');
+  ensure(190); heading('Signatures');   // keep the heading with the signature table
   const sigImgs = { eng: await embedImg(doc, r.sign.eng.sig), cli: await embedImg(doc, r.sign.cli.sig) };
   const rowH = 54; ensure(18 + rowH * 2 + 10);
   const cw = [0.26, 0.26, 0.30, 0.18].map(w => w * CW);
