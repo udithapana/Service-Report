@@ -148,6 +148,8 @@ table.et td.cell-in{min-width:96px}
 .bar{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;gap:10px;align-items:center;justify-content:flex-end}
 .bar .st{margin-right:auto;font-size:12.5px;color:var(--muted);min-width:0;display:flex;flex-wrap:wrap;gap:2px 6px;align-items:center}
 @media (max-width:400px){.bar{gap:6px;padding-inline:12px}.bar .btn{padding-inline:10px}}
+@media (max-width:440px){.bar .btn .lbl{display:none}}
+.bkinfo{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:6px 0 12px;font-size:14px}.bkinfo dt{color:var(--muted)}.bkinfo dd{margin:0;font-weight:600}
 
 .ov{position:fixed;inset:0;z-index:60;background:rgba(10,20,15,.55);display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:calc(16px + env(safe-area-inset-top,0px)) 12px calc(16px + env(safe-area-inset-bottom,0px))}
 .dlg{background:var(--surface);border-radius:12px;max-width:720px;width:100%;padding:16px;display:flex;flex-direction:column;gap:12px;box-shadow:0 10px 40px rgba(0,0,0,.3)}
@@ -181,6 +183,7 @@ footer.notice b{color:var(--ink)}
 <div class="bar" id="bar" hidden>
   <span class="st" id="barState"></span>
   <button class="btn" type="button" id="btnHome">Reports</button>
+  <button class="btn" type="button" id="btnShare" aria-label="Share PDF (WhatsApp, email…)" hidden><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg><span class="lbl">Share</span></button>
   <button class="btn pri" type="button" id="btnPdf">Create PDF</button>
 </div>
 <div id="overlay"></div>
@@ -354,7 +357,7 @@ const LS = { get(k, d = '') { try { return localStorage.getItem(k) ?? d; } catch
 
 /* ============ app state ============ */
 let R = null;                   // open report
-let VIEW = 'home', TAB = 'site', INV = 0;
+let VIEW = 'home', TAB = 'site', INV = 0, HTAB = 'reports';
 let saveTimer = null;
 function touch() {
   if (!R) return; R.updated = Date.now();
@@ -393,11 +396,12 @@ function render() {
   $('#topMark').src = LOGO_MARK;
   const m = $('#main');
   if (VIEW === 'home' || !R) {
-    $('#tabs').hidden = true; $('#bar').hidden = true;
+    $('#tabs').hidden = false; $('#bar').hidden = true;
     $('#topTitle').textContent = 'Service Report'; $('#topSub').textContent = 'Regen Renewables · Inverter service'; $('#saveState').textContent = '';
-    renderHome(m); return;
+    $('#tabs').innerHTML = [['reports', 'Reports'], ['backup', 'Backup']].map(([k, l]) => `<button class="tab" role="tab" type="button" data-htab="${k}" aria-selected="${HTAB === k}">${l}</button>`).join('');
+    (HTAB === 'backup' ? renderBackup : renderHome)(m); return;
   }
-  $('#tabs').hidden = false; $('#bar').hidden = false;
+  $('#tabs').hidden = false; $('#bar').hidden = false; $('#btnShare').hidden = !canShareFiles();
   $('#topTitle').textContent = R.site.plant || 'New service report';
   $('#topSub').textContent = [R.site.reportNo, dFmt(R.site.date), R.site.type].filter(Boolean).join(' · ');
   renderTabs();
@@ -421,7 +425,7 @@ const fld = (p, label, attrs = '', cls = '') => `<div class="f ${cls}"><label fo
 
 function renderHome(m) {
   m.innerHTML = `<div class="card"><div class="row sp" style="align-items:center;flex-wrap:nowrap;gap:16px"><div><h1 style="font-size:28px;font-weight:700">Inverter Service Reports</h1><p class="sub" style="margin:4px 0 0">Fill the service checklist on site, read inverter nameplates from a photo, and create the signed A4 report.</p></div><img class="home-logo" src="${LOGO_FULL}" alt="Regen – The Solar Energy Company"></div>
-    <div class="row"><button class="btn pri" type="button" data-act="new">New service report</button><button class="btn" type="button" data-act="import">Import backup</button></div></div>
+    <div class="row"><button class="btn pri" type="button" data-act="new">New service report</button><button class="btn" type="button" data-act="import">Restore from backup</button></div></div>
     <div id="replist" class="list"><div class="hint">Loading reports…</div></div>
     ${settingsCard()}`;
   dbAll().then(list => {
@@ -433,6 +437,17 @@ function renderHome(m) {
       <span class="meta">${esc([r.site?.reportNo, dFmt(r.site?.date), r.site?.type].filter(Boolean).join(' · '))}</span>
       <span class="meta">${(r.invs || []).length} inverter${(r.invs || []).length === 1 ? '' : 's'} · ${f.length ? f.length + ' item' + (f.length === 1 ? '' : 's') + ' to note' : 'no issues noted'}</span></button>`; }).join('');
   });
+}
+function renderBackup(m) {
+  const share = canShareFiles(), last = +LS.get('rsr-lastfull', 0);
+  m.innerHTML = `<div class="card"><h2>Full backup</h2><p class="sub">One file with every report on this device. Reports are kept only in this browser on this phone, so clearing the browser’s site data or removing the app deletes them. Save a full backup regularly and keep it somewhere safe, such as Google Drive or email.</p>
+    <dl class="bkinfo" id="bkInfo"><dt>Reports</dt><dd>…</dd><dt>Backup size</dt><dd>…</dd><dt>Last full backup</dt><dd>${last ? esc(new Date(last).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })) : 'Not saved on this device yet'}</dd></dl>
+    <div class="row"><button class="btn pri" type="button" data-act="fullbackup">Download full backup</button>${share ? `<button class="btn" type="button" data-act="sharebackup">${SHARE_ICON}Share full backup</button>` : ''}</div>
+    ${share ? '<p class="hint">Sharing sends the backup as a .txt file, because WhatsApp and most apps do not accept .json files. “Restore from backup” opens it either way.</p>' : ''}</div>
+  <div class="card"><h2>Restore from backup</h2><p class="sub">Opens a full backup or a single-report backup, including files received on WhatsApp. Reports not on this device are added. A report already here is replaced only when the backup copy is newer. Nothing is deleted.</p>
+    <div class="row"><button class="btn pri" type="button" data-act="import">Restore from backup file</button></div></div>`;
+  dbAll().then(list => { const el = $('#bkInfo'); if (!el) return; const n = list.length, sz = JSON.stringify(list).length;
+    el.children[1].textContent = n ? n + ' report' + (n === 1 ? '' : 's') : 'None yet'; el.children[3].textContent = n ? (sz > 1048576 ? fix(sz / 1048576, 1) + ' MB' : fix(sz / 1024) + ' KB') : '–'; });
 }
 function settingsCard() {
   if (inClaude()) return '';
@@ -580,7 +595,7 @@ function renderSign(m) {
   const pad = (k, title) => { const s = R.sign[k]; return `<div class="card"><h2>${title}</h2><div class="g">${fld('sign.' + k + '.name', 'Name')}<div class="f"><label for="i_sign_${k}_date">Date</label><input id="i_sign_${k}_date" type="date" data-p="sign.${k}.date" value="${esc(s.date)}"></div></div>
     <span class="hint">Sign with a finger or mouse inside the box.</span><canvas class="pad" data-pad="${k}" aria-label="${title} signature"></canvas><div class="row"><button class="btn sm" type="button" data-clearpad="${k}">Clear signature</button></div></div>`; };
   m.innerHTML = `<div class="sig">${pad('eng', 'Service Engineer')}${pad('cli', 'Client Representative')}</div>
-    <div class="card"><h2>Backup</h2><p class="sub">Save this report as a file to keep it or send it to a colleague, who can open it with “Import backup”.</p><div class="row"><button class="btn" type="button" data-act="export">Save backup file</button><button class="btn ghost danger" type="button" data-act="delrep">Delete this report</button></div></div>`;
+    <div class="card"><h2>Backup</h2><p class="sub">Save this report as a file to keep it or send it to a colleague, who can open it with “Import backup”.</p><div class="row"><button class="btn" type="button" data-act="export">Save backup file</button>${canShareFiles() ? `<button class="btn" type="button" data-act="shareone">${SHARE_ICON}Share backup</button>` : ''}<button class="btn ghost danger" type="button" data-act="delrep">Delete this report</button></div></div>`;
   $$('canvas[data-pad]').forEach(initPad);
 }
 
@@ -631,6 +646,7 @@ const invEnergyLine = t => (t && t.n ? `Total ${fix(t.sum)} kWh · average ${fix
 document.addEventListener('click', async e => {
   const t = e.target.closest('button, [data-open]'); if (!t) return;
   if (t.dataset.tab) { TAB = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
+  if (t.dataset.htab) { HTAB = t.dataset.htab; render(); window.scrollTo(0, 0); return; }
   if (t.dataset.open) { const list = await dbAll(); const r = list.find(x => x.id === t.dataset.open); if (r) openReport(normalize(r)); return; }
   if (t.dataset.inv) { INV = +t.dataset.inv; render(); return; }
   if ('chip' in t.dataset) {
@@ -655,12 +671,16 @@ document.addEventListener('click', async e => {
   else if (a === 'months') { R.months = monthsBefore(R.site.date, R.months.length || 6); touch(); render(); }
   else if (a === 'addphoto') $('#filePhoto').click();
   else if (a === 'export') exportJSON();
+  else if (a === 'shareone') shareJSON();
+  else if (a === 'fullbackup') fullBackup(false);
+  else if (a === 'sharebackup') fullBackup(true);
   else if (a === 'delrep') ask('Delete this report from this device? Save a backup file first if you may need it.', 'Delete', async () => { await dbDel(R.id); R = null; VIEW = 'home'; render(); toast('Report deleted'); });
   else if (a === 'savekey') { LS.set('rsr-key', $('#setKey').value.trim()); LS.set('rsr-model', $('#setModel').value); toast('Settings saved'); }
   else if (a === 'clearkey') { LS.set('rsr-key', ''); $('#setKey').value = ''; toast('Key removed'); }
 });
 $('#btnHome').addEventListener('click', async () => { await flush(); R = null; VIEW = 'home'; render(); window.scrollTo(0, 0); });
 $('#btnPdf').addEventListener('click', makePdf);
+$('#btnShare').addEventListener('click', sharePdf);
 function openReport(r) { R = r; VIEW = 'edit'; TAB = 'site'; INV = 0; $('#saveState').textContent = 'Saved on this device'; render(); window.scrollTo(0, 0); }
 
 function ask(text, yes, fn) {
@@ -708,13 +728,30 @@ $('#fileImport').addEventListener('change', async e => {
   let data;
   try { data = parseBackup(await f.text()); }
   catch (err) { toast('“' + f.name + '” is not a backup file. Pick the .json file saved with “Save backup file”.'); return; }
+  if (data && Array.isArray(data.reports) && (!data.app || data.app === 'regen-service-report')) {   // full backup
+    const res = await restoreReports(data.reports); HTAB = 'reports'; R = null; VIEW = 'home'; render(); window.scrollTo(0, 0);
+    toast(`Backup restored: ${res.added} added, ${res.updated} updated${res.same ? ', ' + res.same + ' already up to date' : ''}.`); return;
+  }
   let rep = null;
   if (data && data.report && (!data.app || data.app === 'regen-service-report')) rep = data.report;
   else if (data && data.site && Array.isArray(data.invs)) rep = data;   // a bare report object
   if (!rep) { toast(data && data.app ? 'This backup is from another app (' + data.app + '), not the Service Report.' : 'That file is not a service report backup from this app.'); return; }
-  try { const r = normalize(rep); const list = await dbAll(); if (!r.id || list.some(x => x.id === r.id)) r.id = 'r' + uid(); await dbPut(r); openReport(r); toast('Report imported'); }
+  try { const res = await restoreReports([rep]); const r = normalize((await dbAll()).find(x => x.id === res.ids[0]));
+    openReport(r); toast(res.added ? 'Report added' : res.updated ? 'Report updated with the newer copy' : 'This report is already on this device (same or newer copy kept)'); }
   catch (err) { toast('The backup could not be opened (' + (err && err.message || 'error') + ').'); }
 });
+/* add reports from a backup; an existing report (same id) is replaced only by a newer copy */
+async function restoreReports(reps) {
+  const list = await dbAll(), byId = new Map(list.map(x => [x.id, x])), res = { added: 0, updated: 0, same: 0, ids: [] };
+  for (const rep of reps) {
+    if (!rep || typeof rep !== 'object') continue;
+    const r = normalize(structuredClone(rep)); if (!r.id) r.id = 'r' + uid();
+    const cur = byId.get(r.id);
+    if (!cur) { await dbPut(r); res.added++; } else if ((r.updated || 0) > (cur.updated || 0)) { await dbPut(r); res.updated++; } else res.same++;
+    byId.set(r.id, cur && (cur.updated || 0) >= (r.updated || 0) ? cur : r); res.ids.push(r.id);
+  }
+  return res;
+}
 
 /* ============ nameplate scanning ============ */
 let SCAN = null; // {im, rot, crop}
@@ -974,6 +1011,33 @@ async function saveFile(name, data, mime) {
   const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000); return true;
 }
 const safeName = s => String(s || '').replace(/[^\w\-. ]+/g, '').replace(/\s+/g, '_').slice(0, 60);
+const SHARE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>';
+const canShareFiles = () => { if (inClaude() || !navigator.share || !navigator.canShare) return false; try { return navigator.canShare({ files: [new File(['x'], 'x.pdf', { type: 'application/pdf' })] }); } catch (e) { return false; } };
+/* open the phone's share sheet (WhatsApp, email, Drive…) with a file; returns ok / cancel / blocked / unsupported / error */
+async function shareFile(name, blob, text) {
+  let file = new File([blob], name, { type: blob.type || 'application/octet-stream' });
+  try { if (!navigator.canShare || !navigator.canShare({ files: [file] })) return 'unsupported'; } catch (e) { return 'unsupported'; }
+  try { await navigator.share({ files: [file], title: name, text: text || undefined }); return 'ok'; }
+  catch (e) { return e && e.name === 'AbortError' ? 'cancel' : e && e.name === 'NotAllowedError' ? 'blocked' : 'error'; }
+}
+/* .json is not accepted by the share sheet on Android, so shared backups go as .txt (import reads the contents, not the name) */
+async function shareBackupText(base, json) {
+  const r = await shareFile(base + '.txt', new Blob([json], { type: 'text/plain' }));
+  if (r === 'unsupported' || r === 'error') { toast('Sharing is not available here; the backup was downloaded instead.'); await saveFile(base + '.json', json, 'application/json'); return false; }
+  if (r === 'blocked') { ask('The backup is ready. Tap Share to choose WhatsApp, email or another app.', 'Share', () => shareBackupText(base, json)); return false; }
+  return r === 'ok';
+}
+const backupBase = () => 'Service_Report_' + (safeName(R.site.plant) || 'site') + '_' + (R.site.date || today()) + '_backup';
+async function shareJSON() { await flush(); await shareBackupText(backupBase(), JSON.stringify({ app: 'regen-service-report', v: 1, report: R })); }
+async function fullBackup(share) {
+  const list = (await dbAll()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  if (!list.length) { toast('There are no reports on this device to back up.'); return; }
+  const json = JSON.stringify({ app: 'regen-service-report', kind: 'full', v: 1, created: Date.now(), count: list.length, reports: list });
+  const stamp = new Date(); const p2 = n => String(n).padStart(2, '0');
+  const base = `Service_Reports_full_backup_${stamp.getFullYear()}-${p2(stamp.getMonth() + 1)}-${p2(stamp.getDate())}_${p2(stamp.getHours())}${p2(stamp.getMinutes())}`;
+  const ok = share ? await shareBackupText(base, json) : await saveFile(base + '.json', json, 'application/json');
+  if (ok) { LS.set('rsr-lastfull', String(Date.now())); if (VIEW === 'home' && HTAB === 'backup') render(); toast(`Full backup of ${list.length} report${list.length === 1 ? '' : 's'} ${share ? 'shared' : 'saved'}.`); }
+}
 async function exportJSON() { await flush(); const name = 'Service_Report_' + (safeName(R.site.plant) || 'site') + '_' + (R.site.date || today()) + '.json'; await saveFile(name, JSON.stringify({ app: 'regen-service-report', v: 1, report: R }), 'application/json'); }
 
 /* ============ PDF report (A4) ============ */
@@ -981,9 +1045,25 @@ const WA = s => String(s ?? '').replace(/[‘’‚]/g, "'").replace(/[“”„
 async function makePdf() {
   if (!window.PDFLib) { toast('The PDF tool has not loaded. Connect to the internet and reload the app once.'); return; }
   const btn = $('#btnPdf'); btn.disabled = true; btn.textContent = 'Creating…';
-  try { await flush(); const bytes = await buildPdf(R); const name = 'Service_Report_' + (safeName(R.site.plant) || 'site') + '_' + (R.site.date || today()) + '.pdf'; await offerPdf(name, bytes); }
+  try { const p = await getPdf(); await offerPdf(p.name, p.bytes); }
   catch (e) { console.error(e); toast('The PDF could not be created: ' + (e.message || e)); }
   finally { btn.disabled = false; btn.textContent = 'Create PDF'; }
+}
+let PDFC = null;   // last PDF made, reused while the report is unchanged
+async function getPdf() {
+  await flush(); const key = R.id + ':' + R.updated;
+  if (!PDFC || PDFC.key !== key) PDFC = { key, name: 'Service_Report_' + (safeName(R.site.plant) || 'site') + '_' + (R.site.date || today()) + '.pdf', bytes: await buildPdf(R) };
+  return PDFC;
+}
+async function sharePdf() {
+  if (!window.PDFLib) { toast('The PDF tool has not loaded. Connect to the internet and reload the app once.'); return; }
+  const btn = $('#btnShare'); btn.disabled = true;
+  try {
+    const p = await getPdf();
+    const r = await shareFile(p.name, new Blob([p.bytes], { type: 'application/pdf' }), 'Inverter service report – ' + (R.site.plant || ''));
+    if (r === 'blocked' || r === 'unsupported' || r === 'error') await offerPdf(p.name, p.bytes);   // the PDF took a while: one more tap opens the share sheet
+  } catch (e) { console.error(e); toast('The PDF could not be created: ' + (e.message || e)); }
+  finally { btn.disabled = false; }
 }
 async function offerPdf(name, bytes) {
   if (inClaude()) { await saveFile(name, new Blob([bytes], { type: 'application/pdf' })); return; }
@@ -991,10 +1071,10 @@ async function offerPdf(name, bytes) {
   const canShare = navigator.canShare && navigator.canShare({ files: [file] });
   const o = $('#overlay');
   o.innerHTML = `<div class="ov"><div class="dlg" role="dialog" aria-modal="true"><h2>PDF ready</h2><p class="hint" style="margin:0">${esc(name)} · ${fix(bytes.length / 1024)} KB</p>
-    <div class="row">${canShare ? '<button class="btn pri" type="button" id="pdfShare">Share (WhatsApp, email…)</button>' : ''}<button class="btn ${canShare ? '' : 'pri'}" type="button" id="pdfSave">Download</button><button class="btn ghost" type="button" id="pdfClose">Close</button></div></div></div>`;
+    <div class="row">${canShare ? '<button class="btn pri" type="button" id="pdfShare">${SHARE_ICON}Share (WhatsApp, email…)</button>' : ''}<button class="btn ${canShare ? '' : 'pri'}" type="button" id="pdfSave">Download</button><button class="btn ghost" type="button" id="pdfClose">Close</button></div></div></div>`;
   $('#pdfClose').onclick = () => (o.innerHTML = '');
   $('#pdfSave').onclick = () => saveFile(name, blob);
-  if (canShare) $('#pdfShare').onclick = async () => { try { await navigator.share({ files: [file], title: name }); } catch (e) { } };
+  if (canShare) $('#pdfShare').onclick = async () => { const r = await shareFile(name, blob, 'Inverter service report – ' + (R ? R.site.plant || '' : '')); if (r === 'ok') o.innerHTML = ''; else if (r === 'error' || r === 'blocked') toast('Sharing did not start. Use Download and attach the PDF in WhatsApp.'); };
 }
 function dataBytes(u) { const b = atob(u.split(',')[1]); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
 async function embedImg(doc, u) { if (!u) return null; try { return /^data:image\/png/.test(u) ? await doc.embedPng(dataBytes(u)) : await doc.embedJpg(dataBytes(u)); } catch (e) { return null; } }

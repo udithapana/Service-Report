@@ -26,6 +26,13 @@ Inverter service report app for Regen Renewables (Pvt) Ltd. Fill the service che
 
 Values are always shown for checking before they are added to the report.
 
+## Backup, restore and sharing
+
+- **Backup tab** (on the start screen): *Download full backup* saves every report on the phone in one file; *Share full backup* sends it to WhatsApp, Drive, email and so on. Reports live only in that phone's browser, so keep a recent full backup.
+- **Restore from backup** opens a full backup or a single-report backup, including files received on WhatsApp (any file name). Missing reports are added; a report already on the phone is replaced only by a newer copy. Nothing is deleted.
+- **Share** button (next to *Create PDF*) opens the phone's share sheet with the PDF report for WhatsApp, email, etc. Each report's Sign-off tab also has *Share backup*.
+- Shared backups are sent as `.txt`, because WhatsApp does not accept `.json`; restore reads the contents, not the file name.
+
 ## Updating
 
 When you change `index.html`, also change the version number in the `const CACHE` line near the top of `sw.js` (for example `'1.0.0'` → `'1.0.1'`) so phones pick up the new version.
